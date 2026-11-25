@@ -55,7 +55,12 @@ final class TextLinesTable implements SupportsRead {
 
   @Override
   public ScanBuilder newScanBuilder(CaseInsensitiveStringMap scanOptions) {
-    Map<String, String> merged = new HashMap<>(options.asCaseSensitiveMap());
+    Map<String, String> merged = new HashMap<>();
+    for (Map.Entry<String, String> e : options.asCaseSensitiveMap().entrySet()) {
+      if (!scanOptions.containsKey(e.getKey())) {
+        merged.put(e.getKey(), e.getValue());
+      }
+    }
     merged.putAll(scanOptions.asCaseSensitiveMap());
     return new Builder(schema, new CaseInsensitiveStringMap(merged));
   }

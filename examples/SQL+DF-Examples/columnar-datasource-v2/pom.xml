@@ -19,7 +19,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.nvidia</groupId>
-    <artifactId>columnar-datasource-v2-example_2.12</artifactId>
+    <artifactId>columnar-datasource-v2-example</artifactId>
     <name>Columnar DataSource V2 Example</name>
     <description>A DataSource V2 source that returns Arrow-backed columnar batches,
         which the NVIDIA cuDF plugin for Apache Spark copies to the GPU in bulk</description>

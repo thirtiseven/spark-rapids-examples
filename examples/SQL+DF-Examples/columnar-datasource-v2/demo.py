@@ -22,13 +22,17 @@ If the local input path does not exist, a small sample is written there first.
 
 import os
 import sys
+from urllib.parse import unquote, urlparse
 
 from pyspark.sql import SparkSession, functions as F
 
 path = sys.argv[1]
 spark = SparkSession.builder.appName("textlines-demo").getOrCreate()
 
-if not os.path.exists(path):
+parsed = urlparse(path)
+local_path = unquote(parsed.path) if parsed.scheme == "file" else path
+if (parsed.scheme in ("", "file") and parsed.netloc in ("", "localhost")
+        and not os.path.exists(local_path)):
     (spark.range(0, 2_000_000, numPartitions=8)
      .select(F.concat_ws(" ", F.lit("record"), F.col("id"),
                          F.sha2(F.col("id").cast("string"), 256)).alias("value"))

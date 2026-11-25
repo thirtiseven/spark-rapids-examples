@@ -30,12 +30,13 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.apache.hadoop.mapreduce.TaskAttemptID;
 import org.apache.hadoop.mapreduce.lib.input.FileSplit;
 import org.apache.hadoop.mapreduce.lib.input.LineRecordReader;
+import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
 import org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl;
 import org.apache.spark.sql.connector.read.PartitionReader;
-import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.vectorized.ArrowColumnVector;
 import org.apache.spark.sql.vectorized.ColumnVector;
@@ -49,10 +50,10 @@ import org.apache.spark.sql.vectorized.ColumnarBatch;
  * below {@code maxBatchBytes} (2 MiB by default) for typical lines.
  */
 final class TextLinesColumnarReader implements PartitionReader<ColumnarBatch> {
-  // Shared and never closed. Spark 4.1 and later close a reader as soon as its input ends, while
-  // a consumer may still hold references to the buffers of its last batches; closing the
-  // allocator then would fail with a memory leak error. Arrow frees each buffer when its last
-  // reference is released.
+  // Shared and never closed. Spark 4.2 and later close a reader as soon as its input ends (and
+  // Spark 4.1+ between grouped partitions), while a consumer may still hold references to the
+  // buffers of its last batches; closing the allocator then would fail with a memory leak error.
+  // Arrow frees each buffer when its last reference is released.
   private static final BufferAllocator ALLOCATOR = new RootAllocator();
 
   private final Configuration conf;
@@ -91,8 +92,10 @@ final class TextLinesColumnarReader implements PartitionReader<ColumnarBatch> {
       FileSplit split = new FileSplit(new Path(partition.paths[nextSplit]),
           partition.starts[nextSplit], partition.lengths[nextSplit], new String[0]);
       nextSplit++;
-      lines = new LineRecordReader();
-      lines.initialize(split, new TaskAttemptContextImpl(conf, new TaskAttemptID()));
+      TaskAttemptContext context = new TaskAttemptContextImpl(conf, new TaskAttemptID());
+      // Use TextInputFormat so Hadoop options like textinputformat.record.delimiter apply.
+      lines = (LineRecordReader) new TextInputFormat().createRecordReader(split, context);
+      lines.initialize(split, context);
     }
   }
 
@@ -183,10 +186,13 @@ final class TextLinesColumnarReader implements PartitionReader<ColumnarBatch> {
 
   @Override
   public void close() throws IOException {
-    closeBatch();
-    if (lines != null) {
-      lines.close();
-      lines = null;
+    try {
+      closeBatch();
+    } finally {
+      if (lines != null) {
+        lines.close();
+        lines = null;
+      }
     }
   }
 }
