@@ -23,14 +23,15 @@ import org.apache.spark.sql.connector.read.PartitionReader;
 import org.apache.spark.sql.connector.read.PartitionReaderFactory;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
+import org.apache.spark.util.SerializableConfiguration;
 
 final class TextLinesReaderFactory implements PartitionReaderFactory {
-  private final Broadcast<SerializableConf> conf;
+  final Broadcast<SerializableConfiguration> conf;
   private final StructType required;
   private final int maxBatchRows;
   private final long maxBatchBytes;
 
-  TextLinesReaderFactory(Broadcast<SerializableConf> conf, StructType required,
+  TextLinesReaderFactory(Broadcast<SerializableConfiguration> conf, StructType required,
       int maxBatchRows, long maxBatchBytes) {
     this.conf = conf;
     this.required = required;
@@ -47,7 +48,7 @@ final class TextLinesReaderFactory implements PartitionReaderFactory {
 
   @Override
   public PartitionReader<ColumnarBatch> createColumnarReader(InputPartition partition) {
-    return new TextLinesColumnarReader(conf.value().get(), (TextSplitPartition) partition,
+    return new TextLinesColumnarReader(conf.value().value(), (TextSplitPartition) partition,
         required, maxBatchRows, maxBatchBytes);
   }
 

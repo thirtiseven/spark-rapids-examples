@@ -20,11 +20,13 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -37,6 +39,9 @@ import org.apache.arrow.memory.ArrowBuf;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.mapreduce.lib.input.FileSplit;
+import org.apache.spark.SparkConf;
+import org.apache.spark.serializer.KryoSerializer;
+import org.apache.spark.serializer.SerializerInstance;
 import org.apache.spark.sql.DataFrameReader;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
@@ -47,9 +52,12 @@ import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 import org.apache.spark.sql.vectorized.ArrowColumnVector;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
+import org.apache.spark.util.SerializableConfiguration;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import scala.reflect.ClassTag;
+import scala.reflect.ClassTag$;
 
 public class TextLinesSourceTest {
   private static final int LONG_LINES_PER_FILE = 19;
@@ -353,6 +361,40 @@ public class TextLinesSourceTest {
       fail("Expected scan option maxbatchrows=0 to override table option maxBatchRows=100");
     } catch (IllegalArgumentException expected) {
       // expected
+    }
+  }
+
+  @Test
+  public void preservesHadoopSettingsThroughKryoBroadcast() throws IOException {
+    String sessionKey = "textlines.test.session.setting";
+    spark.conf().set(sessionKey, "from-session");
+    try {
+      Map<String, String> opts = new HashMap<>();
+      opts.put("path", files.get(0).getPath());
+      opts.put("fs.s3a.endpoint", "http://example.invalid:9000");
+      StructType schema = TextLinesSource.schema(CaseInsensitiveStringMap.empty());
+      TextLinesScan scan = new TextLinesScan(new CaseInsensitiveStringMap(opts), schema);
+      TextLinesReaderFactory factory = (TextLinesReaderFactory) scan.createReaderFactory();
+
+      SparkConf kryoConf = new SparkConf().set("spark.kryo.registrationRequired", "true");
+      SerializerInstance kryo = new KryoSerializer(kryoConf).newInstance();
+      ClassTag<SerializableConfiguration> tag = ClassTag$.MODULE$.apply(
+          SerializableConfiguration.class);
+      ByteBuffer bytes = kryo.serialize(factory.conf.value(), tag);
+      SerializableConfiguration restored = kryo.deserialize(bytes, tag);
+
+      assertNotNull(restored.value());
+      assertEquals("http://example.invalid:9000", restored.value().get("fs.s3a.endpoint"));
+      assertEquals("from-session", restored.value().get(sessionKey));
+
+      TextSplitPartition part = (TextSplitPartition) scan.planInputPartitions()[0];
+      try (TextLinesColumnarReader r = new TextLinesColumnarReader(
+          restored.value(), part, schema, 1000, 16L << 10)) {
+        assertTrue(r.next());
+        assertTrue(r.get().numRows() > 0);
+      }
+    } finally {
+      spark.conf().unset(sessionKey);
     }
   }
 }

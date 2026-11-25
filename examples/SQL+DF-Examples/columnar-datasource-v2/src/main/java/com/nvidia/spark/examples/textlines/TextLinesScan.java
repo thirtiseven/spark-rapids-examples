@@ -44,6 +44,7 @@ import org.apache.spark.sql.connector.read.PartitionReaderFactory;
 import org.apache.spark.sql.connector.read.Scan;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
+import org.apache.spark.util.SerializableConfiguration;
 
 /** Splits the files like Hadoop's TextInputFormat and packs the splits into partitions. */
 final class TextLinesScan implements Scan, Batch {
@@ -152,8 +153,9 @@ final class TextLinesScan implements Scan, Batch {
   public synchronized PartitionReaderFactory createReaderFactory() {
     if (readerFactory == null) {
       SparkSession spark = SparkSession.active();
-      Broadcast<SerializableConf> conf = JavaSparkContext.fromSparkContext(spark.sparkContext())
-          .broadcast(new SerializableConf(hadoopConf()));
+      // SerializableConfiguration is registered with Spark's KryoSerializer out of the box.
+      Broadcast<SerializableConfiguration> conf = JavaSparkContext.fromSparkContext(
+          spark.sparkContext()).broadcast(new SerializableConfiguration(hadoopConf()));
       readerFactory = new TextLinesReaderFactory(conf, required, maxBatchRows, maxBatchBytes);
     }
     return readerFactory;
